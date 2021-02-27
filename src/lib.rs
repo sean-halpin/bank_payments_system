@@ -7,6 +7,20 @@ pub mod tx_stream_reader;
 #[macro_use]
 extern crate serde_derive;
 
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+pub enum TxType {
+    #[serde(alias = "deposit")]
+    Deposit,
+    #[serde(alias = "withdraw")]
+    Withdraw,
+    #[serde(alias = "dispute")]
+    Dispute,
+    #[serde(alias = "resolve")]
+    Resolve,
+    #[serde(alias = "chargeback")]
+    Chargeback,
+}
+
 #[derive(Debug, Serialize)]
 pub struct ClientAccount {
     client: u16,
@@ -18,8 +32,8 @@ pub struct ClientAccount {
 
 #[derive(Clone, Debug, Deserialize)]
 pub struct Transaction {
-    #[serde(default)]
-    r#type: String,
+    #[serde(default, alias = "type")]
+    tx_type: Option<TxType>,
     #[serde(default)]
     client: u16,
     #[serde(default)]

@@ -1,5 +1,6 @@
 use crate::ClientAccount;
 use crate::Transaction;
+use crate::TxType;
 use rust_decimal::Decimal;
 use std::collections::hash_map::Entry::Occupied;
 use std::collections::hash_map::Entry::Vacant;
@@ -8,7 +9,6 @@ use std::error::Error;
 use std::fmt;
 use std::io;
 
-#[derive(Debug)]
 pub struct AccountManager {
     pub accounts: HashMap<u16, ClientAccount>,
     transactions: HashMap<u32, Transaction>,
@@ -112,7 +112,7 @@ impl AccountManager {
             Occupied(mut e) => {
                 let disputed_tx = e.get_mut();
                 let account = _account.get_mut();
-                if disputed_tx.r#type != "deposit" {
+                if disputed_tx.tx_type.as_ref().unwrap() != &TxType::Deposit {
                     return Err("Only a Deposit can be disputed".into());
                 }
                 let amount = match disputed_tx.amount {
@@ -189,13 +189,15 @@ impl AccountManager {
     }
 
     pub fn process_tx(&mut self, tx: &Transaction) -> Result<(), Box<dyn Error>> {
-        match tx.r#type.as_str() {
-            "deposit" => self.process_deposit(tx)?,
-            "withdraw" => self.process_withdraw(tx)?,
-            "dispute" => self.process_dispute(tx)?,
-            "resolve" => self.process_resolve(tx)?,
-            "chargeback" => self.process_chargeback(tx)?,
-            _ => return Err(format!("Unknown Tx Type, type={}", tx.r#type).into()),
+        match &tx.tx_type {
+            Some(t) => match t {
+                TxType::Deposit => self.process_deposit(tx)?,
+                TxType::Withdraw => self.process_withdraw(tx)?,
+                TxType::Dispute => self.process_dispute(tx)?,
+                TxType::Resolve => self.process_resolve(tx)?,
+                TxType::Chargeback => self.process_chargeback(tx)?,
+            },
+            None => return Err(format!("No Tx Type provided").into()),
         };
         Ok(())
     }
@@ -210,7 +212,7 @@ mod tests {
         let mut acc_man = AccountManager::default();
         let client_id = 1u16;
         let tx = Transaction {
-            r#type: "deposit".to_string(),
+            tx_type: Some(TxType::Deposit),
             client: client_id,
             tx: 1u32,
             amount: Some(Decimal::new(1, 0)),
@@ -233,7 +235,7 @@ mod tests {
         let mut acc_man = AccountManager::default();
         let client_id = 1u16;
         let tx1 = Transaction {
-            r#type: "deposit".to_string(),
+            tx_type: Some(TxType::Deposit),
             client: client_id,
             tx: 1u32,
             amount: Some(Decimal::new(1, 0)),
@@ -241,7 +243,7 @@ mod tests {
         };
         assert!(acc_man.process_tx(&tx1).is_ok());
         let tx2 = Transaction {
-            r#type: "deposit".to_string(),
+            tx_type: Some(TxType::Deposit),
             client: client_id,
             tx: 1u32,
             amount: Some(Decimal::new(1, 0)),
@@ -264,7 +266,7 @@ mod tests {
         let mut acc_man = AccountManager::default();
         let client_id = 1u16;
         let tx1 = Transaction {
-            r#type: "deposit".to_string(),
+            tx_type: Some(TxType::Deposit),
             client: client_id,
             tx: 1u32,
             amount: Some(Decimal::new(1, 0)),
@@ -272,7 +274,7 @@ mod tests {
         };
         assert!(acc_man.process_tx(&tx1).is_ok());
         let tx2 = Transaction {
-            r#type: "deposit".to_string(),
+            tx_type: Some(TxType::Deposit),
             client: client_id,
             tx: 2u32,
             amount: Some(Decimal::new(1, 0)),
@@ -295,7 +297,7 @@ mod tests {
         let mut acc_man = AccountManager::default();
         let client_id = 1u16;
         let tx = Transaction {
-            r#type: "withdraw".to_string(),
+            tx_type: Some(TxType::Withdraw),
             client: client_id,
             tx: 1u32,
             amount: Some(Decimal::new(1, 0)),
@@ -318,7 +320,7 @@ mod tests {
         let mut acc_man = AccountManager::default();
         let client_id = 1u16;
         let tx1 = Transaction {
-            r#type: "withdraw".to_string(),
+            tx_type: Some(TxType::Withdraw),
             client: client_id,
             tx: 1u32,
             amount: Some(Decimal::new(1, 0)),
@@ -326,7 +328,7 @@ mod tests {
         };
         assert!(acc_man.process_tx(&tx1).is_ok());
         let tx2 = Transaction {
-            r#type: "withdraw".to_string(),
+            tx_type: Some(TxType::Withdraw),
             client: client_id,
             tx: 1u32,
             amount: Some(Decimal::new(1, 0)),
@@ -349,7 +351,7 @@ mod tests {
         let mut acc_man = AccountManager::default();
         let client_id = 1u16;
         let tx1 = Transaction {
-            r#type: "withdraw".to_string(),
+            tx_type: Some(TxType::Withdraw),
             client: client_id,
             tx: 1u32,
             amount: Some(Decimal::new(1, 0)),
@@ -357,7 +359,7 @@ mod tests {
         };
         assert!(acc_man.process_tx(&tx1).is_ok());
         let tx2 = Transaction {
-            r#type: "withdraw".to_string(),
+            tx_type: Some(TxType::Withdraw),
             client: client_id,
             tx: 2u32,
             amount: Some(Decimal::new(1, 0)),
@@ -380,7 +382,7 @@ mod tests {
         let mut acc_man = AccountManager::default();
         let client_id = 1u16;
         let tx1 = Transaction {
-            r#type: "deposit".to_string(),
+            tx_type: Some(TxType::Deposit),
             client: client_id,
             tx: 1u32,
             amount: Some(Decimal::new(5, 0)),
@@ -388,7 +390,7 @@ mod tests {
         };
         assert!(acc_man.process_tx(&tx1).is_ok());
         let tx2 = Transaction {
-            r#type: "dispute".to_string(),
+            tx_type: Some(TxType::Dispute),
             client: client_id,
             tx: 1u32,
             amount: None,
@@ -415,7 +417,7 @@ mod tests {
         let mut acc_man = AccountManager::default();
         let client_id = 1u16;
         let tx1 = Transaction {
-            r#type: "withdraw".to_string(),
+            tx_type: Some(TxType::Withdraw),
             client: client_id,
             tx: 1u32,
             amount: Some(Decimal::new(9, 0)),
@@ -423,7 +425,7 @@ mod tests {
         };
         assert!(acc_man.process_tx(&tx1).is_ok());
         let tx2 = Transaction {
-            r#type: "dispute".to_string(),
+            tx_type: Some(TxType::Dispute),
             client: client_id,
             tx: 1u32,
             amount: None,
@@ -450,7 +452,7 @@ mod tests {
         let mut acc_man = AccountManager::default();
         let client_id = 1u16;
         let tx1 = Transaction {
-            r#type: "deposit".to_string(),
+            tx_type: Some(TxType::Deposit),
             client: client_id,
             tx: 1u32,
             amount: Some(Decimal::new(9, 0)),
@@ -458,7 +460,7 @@ mod tests {
         };
         assert!(acc_man.process_tx(&tx1).is_ok());
         let tx2 = Transaction {
-            r#type: "dispute".to_string(),
+            tx_type: Some(TxType::Dispute),
             client: client_id,
             tx: 1u32,
             amount: None,
@@ -466,7 +468,7 @@ mod tests {
         };
         assert!(acc_man.process_tx(&tx2).is_ok());
         let tx3 = Transaction {
-            r#type: "resolve".to_string(),
+            tx_type: Some(TxType::Resolve),
             client: client_id,
             tx: 1u32,
             amount: None,
@@ -492,7 +494,7 @@ mod tests {
         let mut acc_man = AccountManager::default();
         let client_id = 1u16;
         let tx1 = Transaction {
-            r#type: "deposit".to_string(),
+            tx_type: Some(TxType::Deposit),
             client: client_id,
             tx: 1u32,
             amount: Some(Decimal::new(9, 0)),
@@ -500,7 +502,7 @@ mod tests {
         };
         assert!(acc_man.process_tx(&tx1).is_ok());
         let tx3 = Transaction {
-            r#type: "resolve".to_string(),
+            tx_type: Some(TxType::Resolve),
             client: client_id,
             tx: 1u32,
             amount: None,
@@ -514,7 +516,7 @@ mod tests {
         let mut acc_man = AccountManager::default();
         let client_id = 1u16;
         let tx1 = Transaction {
-            r#type: "deposit".to_string(),
+            tx_type: Some(TxType::Deposit),
             client: client_id,
             tx: 1u32,
             amount: Some(Decimal::new(9, 0)),
@@ -522,7 +524,7 @@ mod tests {
         };
         assert!(acc_man.process_tx(&tx1).is_ok());
         let tx2 = Transaction {
-            r#type: "dispute".to_string(),
+            tx_type: Some(TxType::Dispute),
             client: client_id,
             tx: 1u32,
             amount: None,
@@ -530,7 +532,7 @@ mod tests {
         };
         assert!(acc_man.process_tx(&tx2).is_ok());
         let tx3 = Transaction {
-            r#type: "chargeback".to_string(),
+            tx_type: Some(TxType::Chargeback),
             client: client_id,
             tx: 1u32,
             amount: None,
@@ -556,7 +558,7 @@ mod tests {
         let mut acc_man = AccountManager::default();
         let client_id = 1u16;
         let tx1 = Transaction {
-            r#type: "deposit".to_string(),
+            tx_type: Some(TxType::Deposit),
             client: client_id,
             tx: 1u32,
             amount: Some(Decimal::new(9, 0)),
@@ -564,7 +566,7 @@ mod tests {
         };
         assert!(acc_man.process_tx(&tx1).is_ok());
         let tx3 = Transaction {
-            r#type: "chargeback".to_string(),
+            tx_type: Some(TxType::Chargeback),
             client: client_id,
             tx: 1u32,
             amount: None,
@@ -578,7 +580,7 @@ mod tests {
         let mut acc_man = AccountManager::default();
         let client_id = 1u16;
         let tx3 = Transaction {
-            r#type: "chargeback".to_string(),
+            tx_type: Some(TxType::Chargeback),
             client: client_id,
             tx: 1u32,
             amount: None,
@@ -592,7 +594,7 @@ mod tests {
         let mut acc_man = AccountManager::default();
         let client_id = 1u16;
         let tx3 = Transaction {
-            r#type: "resolve".to_string(),
+            tx_type: Some(TxType::Resolve),
             client: client_id,
             tx: 1u32,
             amount: None,
@@ -606,7 +608,7 @@ mod tests {
         let mut acc_man = AccountManager::default();
         let client_id = 1u16;
         let tx3 = Transaction {
-            r#type: "dispute".to_string(),
+            tx_type: Some(TxType::Dispute),
             client: client_id,
             tx: 1u32,
             amount: None,
