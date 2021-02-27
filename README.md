@@ -2,6 +2,19 @@
 
 A payments system to manage bank accounts with `deposit`, `withdraw`, `dispute`, `resolve` & `chargeback` type transactions
 
+### Build Status
+
+[![Build Status](https://travis-ci.com/sean-halpin/bank_payments_system.svg?branch=master)](https://travis-ci.com/sean-halpin/bank_payments_system)
+
+The service is being built and tested automatically with [travis-ci](https://travis-ci.com/github/sean-halpin/bank_payments_system)
+
+### Coverage 
+
+[![codecov](https://codecov.io/gh/sean-halpin/bank_payments_system/branch/master/graph/badge.svg?token=yxIQNIUAGJ)](https://codecov.io/gh/sean-halpin/bank_payments_system)
+
+A test coverage report is being generated on the build pipeline with `grcov` and results of each build can be seen on [codecov.io](https://codecov.io/gh/sean-halpin/bank_payments_system)
+
+
 ### Service Layout
 
 ```
@@ -33,18 +46,6 @@ transactions.csv
 ```
 
 Some test data manually created to run against the application & integration test. 
-
-### Build Status
-
-[![Build Status](https://travis-ci.com/sean-halpin/bank_payments_system.svg?branch=master)](https://travis-ci.com/sean-halpin/bank_payments_system)
-
-The service is being built and tested automatically with [travis-ci](https://travis-ci.com/github/sean-halpin/bank_payments_system)
-
-### Coverage 
-
-[![codecov](https://codecov.io/gh/sean-halpin/bank_payments_system/branch/master/graph/badge.svg?token=yxIQNIUAGJ)](https://codecov.io/gh/sean-halpin/bank_payments_system)
-
-A test coverage report is being generated on the build pipeline with `grcov` and results of each build can be seen on [codecov.io](https://codecov.io/gh/sean-halpin/bank_payments_system)
 
 ### Build
 
