@@ -195,7 +195,7 @@ impl AccountManager {
             "dispute" => self.process_dispute(tx)?,
             "resolve" => self.process_resolve(tx)?,
             "chargeback" => self.process_chargeback(tx)?,
-            _ => return Err("Unknown Tx Type".into()),
+            _ => return Err(format!("Unknown Tx Type, type={}", tx.r#type).into()),
         };
         Ok(())
     }
@@ -207,7 +207,7 @@ mod tests {
 
     #[test]
     fn deposit_new_account() {
-        let mut acc_man = AccountManager::new();
+        let mut acc_man = AccountManager::default();
         let client_id = 1u16;
         let tx = Transaction {
             r#type: "deposit".to_string(),
@@ -230,7 +230,7 @@ mod tests {
 
     #[test]
     fn deposit_duplicate_tx() {
-        let mut acc_man = AccountManager::new();
+        let mut acc_man = AccountManager::default();
         let client_id = 1u16;
         let tx1 = Transaction {
             r#type: "deposit".to_string(),
@@ -261,7 +261,7 @@ mod tests {
 
     #[test]
     fn deposit_multiple_tx() {
-        let mut acc_man = AccountManager::new();
+        let mut acc_man = AccountManager::default();
         let client_id = 1u16;
         let tx1 = Transaction {
             r#type: "deposit".to_string(),
@@ -292,7 +292,7 @@ mod tests {
 
     #[test]
     fn withdraw_new_account() {
-        let mut acc_man = AccountManager::new();
+        let mut acc_man = AccountManager::default();
         let client_id = 1u16;
         let tx = Transaction {
             r#type: "withdraw".to_string(),
@@ -315,7 +315,7 @@ mod tests {
 
     #[test]
     fn withdraw_duplicate_tx() {
-        let mut acc_man = AccountManager::new();
+        let mut acc_man = AccountManager::default();
         let client_id = 1u16;
         let tx1 = Transaction {
             r#type: "withdraw".to_string(),
@@ -346,7 +346,7 @@ mod tests {
 
     #[test]
     fn withdraw_multiple_tx() {
-        let mut acc_man = AccountManager::new();
+        let mut acc_man = AccountManager::default();
         let client_id = 1u16;
         let tx1 = Transaction {
             r#type: "withdraw".to_string(),
@@ -377,7 +377,7 @@ mod tests {
 
     #[test]
     fn dispute_a_deposit_tx() {
-        let mut acc_man = AccountManager::new();
+        let mut acc_man = AccountManager::default();
         let client_id = 1u16;
         let tx1 = Transaction {
             r#type: "deposit".to_string(),
@@ -412,7 +412,7 @@ mod tests {
 
     #[test]
     fn dispute_a_withdraw_tx() {
-        let mut acc_man = AccountManager::new();
+        let mut acc_man = AccountManager::default();
         let client_id = 1u16;
         let tx1 = Transaction {
             r#type: "withdraw".to_string(),
@@ -447,7 +447,7 @@ mod tests {
 
     #[test]
     fn resolve_a_dispute_tx() {
-        let mut acc_man = AccountManager::new();
+        let mut acc_man = AccountManager::default();
         let client_id = 1u16;
         let tx1 = Transaction {
             r#type: "deposit".to_string(),
@@ -489,7 +489,7 @@ mod tests {
 
     #[test]
     fn resolve_a_non_dispute_tx() {
-        let mut acc_man = AccountManager::new();
+        let mut acc_man = AccountManager::default();
         let client_id = 1u16;
         let tx1 = Transaction {
             r#type: "deposit".to_string(),
@@ -511,7 +511,7 @@ mod tests {
 
     #[test]
     fn chargeback_a_dispute_tx() {
-        let mut acc_man = AccountManager::new();
+        let mut acc_man = AccountManager::default();
         let client_id = 1u16;
         let tx1 = Transaction {
             r#type: "deposit".to_string(),
@@ -553,7 +553,7 @@ mod tests {
 
     #[test]
     fn chargeback_a_non_dispute_tx() {
-        let mut acc_man = AccountManager::new();
+        let mut acc_man = AccountManager::default();
         let client_id = 1u16;
         let tx1 = Transaction {
             r#type: "deposit".to_string(),
@@ -575,7 +575,7 @@ mod tests {
 
     #[test]
     fn chargeback_a_non_existent_tx() {
-        let mut acc_man = AccountManager::new();
+        let mut acc_man = AccountManager::default();
         let client_id = 1u16;
         let tx3 = Transaction {
             r#type: "chargeback".to_string(),
@@ -589,7 +589,7 @@ mod tests {
 
     #[test]
     fn resolve_a_non_existent_tx() {
-        let mut acc_man = AccountManager::new();
+        let mut acc_man = AccountManager::default();
         let client_id = 1u16;
         let tx3 = Transaction {
             r#type: "resolve".to_string(),
@@ -603,7 +603,7 @@ mod tests {
 
     #[test]
     fn dispute_a_non_existent_tx() {
-        let mut acc_man = AccountManager::new();
+        let mut acc_man = AccountManager::default();
         let client_id = 1u16;
         let tx3 = Transaction {
             r#type: "dispute".to_string(),

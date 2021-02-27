@@ -23,7 +23,7 @@ impl TxProcessor {
                                 Err(e) => eprintln!("Could not process transaction: {}", e),
                             };
                         }
-                        Err(e) => eprintln!("Could not deserialize: {}", e),
+                        Err(e) => eprintln!("Could not deserialize transaction: {}", e),
                     };
                 }
                 Err(e) => eprintln!("Could not read line: {}", e),
