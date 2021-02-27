@@ -3,6 +3,6 @@ FROM rustlang/rust:nightly-buster
 WORKDIR /svc/app
 COPY . .
 
-RUN cargo install --jobs 2 --path .
+RUN cargo install --path .
 
-CMD ["cargo test"]
+ENTRYPOINT ["bank_payments_system"]

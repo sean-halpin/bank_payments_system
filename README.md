@@ -1,21 +1,17 @@
-### Overview
+## Overview
 
 A payments system to manage bank accounts with `deposit`, `withdraw`, `dispute`, `resolve` & `chargeback` type transactions
 
-### Build Status
-
-[![Build Status](https://travis-ci.com/sean-halpin/bank_payments_system.svg?branch=master)](https://travis-ci.com/sean-halpin/bank_payments_system)
+## Build Status [![Build Status](https://travis-ci.com/sean-halpin/bank_payments_system.svg?branch=master)](https://travis-ci.com/sean-halpin/bank_payments_system)
 
 The service is being built, linted & tested automatically on each commit with [travis-ci](https://travis-ci.com/github/sean-halpin/bank_payments_system)
 
-### Coverage 
-
-[![codecov](https://codecov.io/gh/sean-halpin/bank_payments_system/branch/master/graph/badge.svg?token=yxIQNIUAGJ)](https://codecov.io/gh/sean-halpin/bank_payments_system)
+## Coverage [![codecov](https://codecov.io/gh/sean-halpin/bank_payments_system/branch/master/graph/badge.svg?token=yxIQNIUAGJ)](https://codecov.io/gh/sean-halpin/bank_payments_system)
 
 A test coverage report is being generated on the build pipeline with `grcov` and results of each build can be seen on [codecov.io](https://codecov.io/gh/sean-halpin/bank_payments_system)
 
 
-### Service Layout
+## Service Layout
 
 ```
 src
@@ -47,31 +43,37 @@ transactions.csv
 
 Some test data manually created to run against the application & integration test. 
 
-### Build
+## Build
 
 ```
 $ cargo build
 ```
 
-### Test 
+## Test 
 
 ```
 $ cargo test
 ```
 
-### Linting
+## Linting
 
 ```
 cargo clippy
 ```
 
-### Run 
-
+## Run 
+ 
+### Locally 
 ```
 $ cargo run -- transactions.csv
 ```
+### Docker
+```
+$ docker build -t bps .
+$ docker run -v $(pwd)/transactions.csv:/svc/app/transactions.csv -t bps transactions.csv
+```
 
-### Capture Output
+## Capture Output
 
 Piping stdout to a file will yield a csv showing account status after transaction processing. 
 ```
