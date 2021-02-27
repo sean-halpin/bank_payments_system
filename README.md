@@ -6,9 +6,13 @@ A payments system to manage bank accounts with `deposit`, `withdraw`, `dispute`,
 
 [![Build Status](https://travis-ci.com/sean-halpin/bank_payments_system.svg?branch=master)](https://travis-ci.com/sean-halpin/bank_payments_system)
 
+The service is being built and tested automatically with [travis-ci](https://travis-ci.com/github/sean-halpin/bank_payments_system)
+
 ### Coverage 
 
 [![codecov](https://codecov.io/gh/sean-halpin/bank_payments_system/branch/master/graph/badge.svg?token=yxIQNIUAGJ)](https://codecov.io/gh/sean-halpin/bank_payments_system)
+
+A test coverage report is being generated on the build pipeline with `grcov` and results of each build can be seen on [codecov.io](https://codecov.io/gh/sean-halpin/bank_payments_system)
 
 ### Build
 
@@ -30,7 +34,7 @@ $ cargo run -- transactions.csv
 
 ### Capture Output
 
-Piping stdout to a file will yield a csv showing accounts. 
+Piping stdout to a file will yield a csv showing account status after transaction processing. 
 ```
 $ cargo run -- transactions.csv > out.csv
 $ cat out.csv
