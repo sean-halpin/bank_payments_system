@@ -10,8 +10,8 @@ matrix:
 
 script:
     - rustup component add llvm-tools-preview
+    - rustup component add clippy-preview
     - export RUSTFLAGS="-Zinstrument-coverage"
-    - cargo install clippy
     - cargo build --verbose
     - cargo clippy
     - LLVM_PROFILE_FILE="bank_payments_system-%p-%m.profraw" cargo test --verbose
