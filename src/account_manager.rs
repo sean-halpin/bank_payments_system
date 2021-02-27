@@ -45,7 +45,7 @@ impl AccountManager {
             None => return Err("Amount Required".into()),
         };
         match self.transactions.entry(tx.tx) {
-            Occupied(_) => return Err("Duplicate".into()),
+            Occupied(_) => return Err("Duplicate Transaction".into()),
             Vacant(e) => {
                 e.insert(tx.clone());
             }
@@ -76,7 +76,7 @@ impl AccountManager {
             None => return Err("Amount Required".into()),
         };
         match self.transactions.entry(tx.tx) {
-            Occupied(_) => return Err("Duplicate".into()),
+            Occupied(_) => return Err("Duplicate Transaction".into()),
             Vacant(e) => {
                 e.insert(tx.clone());
             }

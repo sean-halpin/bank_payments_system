@@ -25,10 +25,10 @@ impl TxProcessor {
                             };
                             match self.acc_man.process_tx(&deserialized_tx) {
                                 Ok(_) => {}
-                                Err(e) => eprintln!("Could not process transaction: {}", e),
+                                Err(e) => eprintln!("Error: {} : {:?}", e, tx),
                             };
                         }
-                        Err(e) => eprintln!("Could not deserialize transaction: {}", e),
+                        Err(e) => eprintln!("Error: {} : {:?}", e, tx),
                     };
                 }
                 Err(e) => eprintln!("Could not read line: {}", e),
