@@ -1,0 +1,14 @@
+[package]
+name = "bank_payments_system"
+version = "0.1.0"
+authors = ["sean <pulpfictionost@gmail.com>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+csv = "1.1"
+serde = "1"
+serde_derive = "1"
+rust_decimal = "1.10.3"
+tokio = { version = "1.2.0", features = ["full"] }
