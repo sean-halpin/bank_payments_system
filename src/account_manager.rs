@@ -621,6 +621,28 @@ mod tests {
     fn chargeback_a_non_existent_tx() {
         let mut acc_man = AccountManager::default();
         let client_id = 1u16;
+        let tx1 = Transaction {
+            tx_type: Some(TxType::Deposit),
+            client: client_id,
+            tx: 1u32,
+            amount: Some(Decimal::new(9, 0)),
+            is_disputed: false,
+        };
+        assert!(acc_man.process_tx(&tx1).is_ok());
+        let tx3 = Transaction {
+            tx_type: Some(TxType::Chargeback),
+            client: client_id,
+            tx: 1u32,
+            amount: None,
+            is_disputed: false,
+        };
+        assert!(acc_man.process_tx(&tx3).is_err());
+    }
+
+    #[test]
+    fn chargeback_a_non_existent_customer() {
+        let mut acc_man = AccountManager::default();
+        let client_id = 1u16;
         let tx3 = Transaction {
             tx_type: Some(TxType::Chargeback),
             client: client_id,
