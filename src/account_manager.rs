@@ -84,6 +84,9 @@ impl AccountManager {
         match self.accounts.entry(tx.client) {
             Occupied(mut e) => {
                 let account = e.get_mut();
+                if account.available - amount < Decimal::new(0, 0) {
+                    return Err("Insufficient Funds".into());
+                }
                 account.available -= amount;
                 account.total = account.available - account.held;
             }
@@ -351,10 +354,10 @@ mod tests {
         let mut acc_man = AccountManager::default();
         let client_id = 1u16;
         let tx1 = Transaction {
-            tx_type: Some(TxType::Withdraw),
+            tx_type: Some(TxType::Deposit),
             client: client_id,
             tx: 1u32,
-            amount: Some(Decimal::new(1, 0)),
+            amount: Some(Decimal::new(10, 0)),
             is_disputed: false,
         };
         assert!(acc_man.process_tx(&tx1).is_ok());
@@ -366,15 +369,54 @@ mod tests {
             is_disputed: false,
         };
         assert!(acc_man.process_tx(&tx2).is_ok());
+        let tx3 = Transaction {
+            tx_type: Some(TxType::Withdraw),
+            client: client_id,
+            tx: 3u32,
+            amount: Some(Decimal::new(1, 0)),
+            is_disputed: false,
+        };
+        assert!(acc_man.process_tx(&tx3).is_ok());
 
         let maybe_account = acc_man.accounts.get(&client_id);
         assert!(maybe_account.is_some());
         let account: &ClientAccount = maybe_account.unwrap();
-        assert_eq!(account.available, Decimal::new(-2, 0));
+        assert_eq!(account.available, Decimal::new(8, 0));
         assert_eq!(account.client, client_id);
         assert_eq!(account.held, Decimal::new(0, 0));
         assert_eq!(account.locked, false);
-        assert_eq!(account.total, Decimal::new(-2, 0));
+        assert_eq!(account.total, Decimal::new(8, 0));
+    }
+
+    #[test]
+    fn withdraw_insufficient_funds_tx() {
+        let mut acc_man = AccountManager::default();
+        let client_id = 1u16;
+        let tx1 = Transaction {
+            tx_type: Some(TxType::Deposit),
+            client: client_id,
+            tx: 1u32,
+            amount: Some(Decimal::new(10, 0)),
+            is_disputed: false,
+        };
+        assert!(acc_man.process_tx(&tx1).is_ok());
+        let tx2 = Transaction {
+            tx_type: Some(TxType::Withdraw),
+            client: client_id,
+            tx: 2u32,
+            amount: Some(Decimal::new(11, 0)),
+            is_disputed: false,
+        };
+        assert!(acc_man.process_tx(&tx2).is_err());
+
+        let maybe_account = acc_man.accounts.get(&client_id);
+        assert!(maybe_account.is_some());
+        let account: &ClientAccount = maybe_account.unwrap();
+        assert_eq!(account.available, Decimal::new(10, 0));
+        assert_eq!(account.client, client_id);
+        assert_eq!(account.held, Decimal::new(0, 0));
+        assert_eq!(account.locked, false);
+        assert_eq!(account.total, Decimal::new(10, 0));
     }
 
     #[test]
