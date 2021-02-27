@@ -11,7 +11,9 @@ matrix:
 script:
     - rustup component add llvm-tools-preview
     - export RUSTFLAGS="-Zinstrument-coverage"
+    - cargo install clippy
     - cargo build --verbose
+    - cargo clippy
     - LLVM_PROFILE_FILE="bank_payments_system-%p-%m.profraw" cargo test --verbose
     - ./grcov . --binary-path ./target/debug/ -s . -t lcov --branch --ignore-not-existing --ignore "/*" -o lcov.info
     - bash <(curl -s https://codecov.io/bash) -f lcov.info

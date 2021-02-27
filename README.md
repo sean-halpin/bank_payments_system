@@ -6,7 +6,7 @@ A payments system to manage bank accounts with `deposit`, `withdraw`, `dispute`,
 
 [![Build Status](https://travis-ci.com/sean-halpin/bank_payments_system.svg?branch=master)](https://travis-ci.com/sean-halpin/bank_payments_system)
 
-The service is being built and tested automatically with [travis-ci](https://travis-ci.com/github/sean-halpin/bank_payments_system)
+The service is being built, linted & tested automatically on each commit with [travis-ci](https://travis-ci.com/github/sean-halpin/bank_payments_system)
 
 ### Coverage 
 
@@ -57,6 +57,12 @@ $ cargo build
 
 ```
 $ cargo test
+```
+
+### Linting
+
+```
+cargo clippy
 ```
 
 ### Run 

@@ -200,7 +200,7 @@ impl AccountManager {
                 TxType::Resolve => self.process_resolve(tx)?,
                 TxType::Chargeback => self.process_chargeback(tx)?,
             },
-            None => return Err(format!("No Tx Type provided").into()),
+            None => return Err("No Tx Type provided".into()),
         };
         Ok(())
     }
