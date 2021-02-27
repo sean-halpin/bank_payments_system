@@ -1,6 +1,7 @@
 use crate::account_manager::AccountManager;
 use crate::tx_stream_reader::TxStreamReader;
 use crate::Transaction;
+use crate::DECIMAL_PRECISION;
 
 pub struct TxProcessor {
     tx_stream: TxStreamReader,
@@ -17,8 +18,12 @@ impl TxProcessor {
             match buf {
                 Ok(tx) => {
                     match tx.deserialize::<Transaction>(None) {
-                        Ok(d) => {
-                            match self.acc_man.process_tx(&d) {
+                        Ok(mut deserialized_tx) => {
+                            deserialized_tx.amount = match deserialized_tx.amount {
+                                Some(a) => Some(a.round_dp(DECIMAL_PRECISION)),
+                                None => None,
+                            };
+                            match self.acc_man.process_tx(&deserialized_tx) {
                                 Ok(_) => {}
                                 Err(e) => eprintln!("Could not process transaction: {}", e),
                             };

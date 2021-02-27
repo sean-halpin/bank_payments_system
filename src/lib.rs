@@ -7,6 +7,8 @@ pub mod tx_stream_reader;
 #[macro_use]
 extern crate serde_derive;
 
+static DECIMAL_PRECISION: u32 = 4;
+
 #[derive(Clone, Debug, Deserialize, PartialEq)]
 pub enum TxType {
     #[serde(alias = "deposit")]

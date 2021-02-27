@@ -8,3 +8,4 @@ deposit, 1, 1,
 deposit, 1, , 1.0
 deposit, , 1, 1.0
 doesnt_exist , 1, 1, 1.0
+deposit, 3, 6, 21.557788
