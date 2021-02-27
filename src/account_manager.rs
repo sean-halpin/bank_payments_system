@@ -53,6 +53,9 @@ impl AccountManager {
         match self.accounts.entry(tx.client) {
             Occupied(mut e) => {
                 let account = e.get_mut();
+                if account.locked {
+                    return Err("Account Locked due to Chargeback".into());
+                }
                 account.available += amount;
                 account.total = account.available - account.held;
             }
@@ -84,6 +87,9 @@ impl AccountManager {
         match self.accounts.entry(tx.client) {
             Occupied(mut e) => {
                 let account = e.get_mut();
+                if account.locked {
+                    return Err("Account Locked due to Chargeback".into());
+                }
                 if account.available - amount < Decimal::new(0, 0) {
                     return Err("Insufficient Funds".into());
                 }
@@ -106,7 +112,12 @@ impl AccountManager {
 
     fn process_dispute(&mut self, tx: &Transaction) -> Result<(), Box<dyn Error>> {
         let mut _account = match self.accounts.entry(tx.client) {
-            Occupied(entry) => entry,
+            Occupied(entry) => {
+                if entry.get().locked {
+                    return Err("Account Locked due to Chargeback".into());
+                }
+                entry
+            }
             Vacant(_) => {
                 return Err("No Associated Client Account Found".into());
             }
@@ -135,7 +146,12 @@ impl AccountManager {
 
     fn process_resolve(&mut self, tx: &Transaction) -> Result<(), Box<dyn Error>> {
         let mut _account = match self.accounts.entry(tx.client) {
-            Occupied(entry) => entry,
+            Occupied(entry) => {
+                if entry.get().locked {
+                    return Err("Account Locked due to Chargeback".into());
+                }
+                entry
+            }
             Vacant(_) => {
                 return Err("No Associated Client Account Found".into());
             }
@@ -164,7 +180,12 @@ impl AccountManager {
 
     fn process_chargeback(&mut self, tx: &Transaction) -> Result<(), Box<dyn Error>> {
         let mut _account = match self.accounts.entry(tx.client) {
-            Occupied(entry) => entry,
+            Occupied(entry) => {
+                if entry.get().locked {
+                    return Err("Account Locked due to Chargeback".into());
+                }
+                entry
+            }
             Vacant(_) => {
                 return Err("No Associated Client Account Found".into());
             }
@@ -581,6 +602,56 @@ mod tests {
             is_disputed: false,
         };
         assert!(acc_man.process_tx(&tx3).is_ok());
+        let maybe_account = acc_man.accounts.get(&client_id);
+        assert!(maybe_account.is_some());
+        let account: &ClientAccount = maybe_account.unwrap();
+        assert_eq!(account.available, Decimal::new(0, 0));
+        assert_eq!(account.client, client_id);
+        assert_eq!(account.held, Decimal::new(0, 0));
+        assert_eq!(account.locked, true);
+        assert_eq!(account.total, Decimal::new(0, 0));
+        match acc_man.transactions.entry(1u32) {
+            Occupied(e) => assert_eq!(e.get().is_disputed, true),
+            Vacant(_e) => assert!(false),
+        };
+    }
+
+    #[test]
+    fn cant_deposit_to_a_locked_account() {
+        let mut acc_man = AccountManager::default();
+        let client_id = 1u16;
+        let tx1 = Transaction {
+            tx_type: Some(TxType::Deposit),
+            client: client_id,
+            tx: 1u32,
+            amount: Some(Decimal::new(9, 0)),
+            is_disputed: false,
+        };
+        assert!(acc_man.process_tx(&tx1).is_ok());
+        let tx2 = Transaction {
+            tx_type: Some(TxType::Dispute),
+            client: client_id,
+            tx: 1u32,
+            amount: None,
+            is_disputed: false,
+        };
+        assert!(acc_man.process_tx(&tx2).is_ok());
+        let tx3 = Transaction {
+            tx_type: Some(TxType::Chargeback),
+            client: client_id,
+            tx: 1u32,
+            amount: None,
+            is_disputed: false,
+        };
+        assert!(acc_man.process_tx(&tx3).is_ok());
+        let tx4 = Transaction {
+            tx_type: Some(TxType::Deposit),
+            client: client_id,
+            tx: 1u32,
+            amount: Some(Decimal::new(9, 0)),
+            is_disputed: false,
+        };
+        assert!(acc_man.process_tx(&tx4).is_err());
         let maybe_account = acc_man.accounts.get(&client_id);
         assert!(maybe_account.is_some());
         let account: &ClientAccount = maybe_account.unwrap();
