@@ -21,17 +21,20 @@ impl std::fmt::Display for AccountManager {
     }
 }
 
-impl AccountManager {
-    pub fn new() -> Self {
+impl Default for AccountManager {
+    fn default() -> Self {
         AccountManager {
             accounts: HashMap::new(),
             transactions: HashMap::new(),
         }
     }
+}
+
+impl AccountManager {
     fn to_csv(&self) -> Result<(), Box<dyn Error>> {
         let mut wtr = csv::Writer::from_writer(io::stdout());
-        for (_k, v) in &self.accounts {
-            wtr.serialize(&v).unwrap();
+        for acc in self.accounts.values() {
+            wtr.serialize(acc).unwrap();
         }
         wtr.flush()?;
         Ok(())

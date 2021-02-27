@@ -10,10 +10,10 @@ impl TxStreamReader {
     pub fn new_from_csv(csv_path: String) -> Result<Self, Box<dyn Error>> {
         let file = File::open(csv_path)?;
         let buffered_file_reader = BufReader::new(file);
-        let tsr: csv::Reader<BufReader<File>> = TxStreamReader::csv_reader(buffered_file_reader)?;
+        let tsr: csv::Reader<BufReader<File>> = TxStreamReader::csv_reader(buffered_file_reader);
         Ok(TxStreamReader { stream: tsr })
     }
-    fn csv_reader(reader: BufReader<File>) -> Result<csv::Reader<BufReader<File>>, Box<dyn Error>> {
+    fn csv_reader(reader: BufReader<File>) -> csv::Reader<BufReader<File>> {
         let csv_reader = csv::ReaderBuilder::new()
             .trim(csv::Trim::All)
             .has_headers(true)
@@ -21,6 +21,6 @@ impl TxStreamReader {
             .flexible(true)
             .double_quote(false)
             .from_reader(reader);
-        Ok(csv_reader)
+        csv_reader
     }
 }

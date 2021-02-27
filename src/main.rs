@@ -9,7 +9,7 @@ async fn main() {
         .expect("Expected a CSV filename, run with `cargo run -- transactions.csv`");
 
     let tx_reader = TxStreamReader::new_from_csv(csv_path).unwrap();
-    let acc_man = AccountManager::new();
+    let acc_man = AccountManager::default();
     let mut tx_processor = TxProcessor::new(tx_reader, acc_man);
     tx_processor.start().await;
     tx_processor.print_accounts();
