@@ -18,7 +18,10 @@ impl TxProcessor {
                 Ok(tx) => {
                     match tx.deserialize::<Transaction>(None) {
                         Ok(d) => {
-                            self.acc_man.process_tx(&d).unwrap();
+                            match self.acc_man.process_tx(&d) {
+                                Ok(_) => {}
+                                Err(e) => eprintln!("Could not process transaction: {}", e),
+                            };
                         }
                         Err(e) => eprintln!("Could not deserialize: {}", e),
                     };
