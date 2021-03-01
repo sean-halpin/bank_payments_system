@@ -41,7 +41,13 @@ impl AccountManager {
     }
     fn process_deposit(&mut self, tx: &Transaction) -> Result<(), Box<dyn Error>> {
         let amount = match tx.amount {
-            Some(a) => a,
+            Some(a) => {
+                if a.lt(&Decimal::new(0, 0)) {
+                    return Err("Cannot Deposit a Negative Amount".into());
+                } else {
+                    a
+                }
+            }
             None => return Err("Amount Required".into()),
         };
         match self.transactions.entry(tx.tx) {
@@ -75,7 +81,13 @@ impl AccountManager {
 
     fn process_withdraw(&mut self, tx: &Transaction) -> Result<(), Box<dyn Error>> {
         let amount = match tx.amount {
-            Some(a) => a,
+            Some(a) => {
+                if a.lt(&Decimal::new(0, 0)) {
+                    return Err("Cannot Withdraw a Negative Amount".into());
+                } else {
+                    a
+                }
+            }
             None => return Err("Amount Required".into()),
         };
         match self.transactions.entry(tx.tx) {
@@ -90,22 +102,13 @@ impl AccountManager {
                 if account.locked {
                     return Err("Account Locked due to Chargeback".into());
                 }
-                if account.available - amount < Decimal::new(0, 0) {
+                if (account.available - amount).lt(&Decimal::new(0, 0)) {
                     return Err("Insufficient Funds".into());
                 }
                 account.available -= amount;
                 account.total = account.available - account.held;
             }
-            Vacant(e) => {
-                let new_account = ClientAccount {
-                    available: -amount,
-                    client: tx.client,
-                    held: Decimal::new(0, 0),
-                    locked: false,
-                    total: -amount,
-                };
-                e.insert(new_account);
-            }
+            Vacant(_) => return Err("Cannot withdraw from a non existent account".into()),
         }
         Ok(())
     }
@@ -255,6 +258,40 @@ mod tests {
     }
 
     #[test]
+    fn deposit_negative_amount_account() {
+        let mut acc_man = AccountManager::default();
+        let client_id = 1u16;
+        let tx = Transaction {
+            tx_type: Some(TxType::Deposit),
+            client: client_id,
+            tx: 1u32,
+            amount: Some(Decimal::new(-1, 0)),
+            is_disputed: false,
+        };
+        let result = acc_man.process_tx(&tx);
+        assert!(result.is_err());
+        let maybe_account = acc_man.accounts.get(&client_id);
+        assert!(maybe_account.is_none());
+    }
+
+    #[test]
+    fn withdraw_negative_amount_account() {
+        let mut acc_man = AccountManager::default();
+        let client_id = 1u16;
+        let tx = Transaction {
+            tx_type: Some(TxType::Withdraw),
+            client: client_id,
+            tx: 1u32,
+            amount: Some(Decimal::new(-1, 0)),
+            is_disputed: false,
+        };
+        let result = acc_man.process_tx(&tx);
+        assert!(result.is_err());
+        let maybe_account = acc_man.accounts.get(&client_id);
+        assert!(maybe_account.is_none());
+    }
+
+    #[test]
     fn deposit_duplicate_tx() {
         let mut acc_man = AccountManager::default();
         let client_id = 1u16;
@@ -328,25 +365,27 @@ mod tests {
             is_disputed: false,
         };
         let result = acc_man.process_tx(&tx);
-        assert!(result.is_ok());
+        assert!(result.is_err());
         let maybe_account = acc_man.accounts.get(&client_id);
-        assert!(maybe_account.is_some());
-        let account: &ClientAccount = maybe_account.unwrap();
-        assert_eq!(account.available, Decimal::new(-1, 0));
-        assert_eq!(account.client, client_id);
-        assert_eq!(account.held, Decimal::new(0, 0));
-        assert_eq!(account.locked, false);
-        assert_eq!(account.total, Decimal::new(-1, 0));
+        assert!(maybe_account.is_none());
     }
 
     #[test]
     fn withdraw_duplicate_tx() {
         let mut acc_man = AccountManager::default();
         let client_id = 1u16;
+        let tx = Transaction {
+            tx_type: Some(TxType::Deposit),
+            client: client_id,
+            tx: 1u32,
+            amount: Some(Decimal::new(9, 0)),
+            is_disputed: false,
+        };
+        assert!(acc_man.process_tx(&tx).is_ok());
         let tx1 = Transaction {
             tx_type: Some(TxType::Withdraw),
             client: client_id,
-            tx: 1u32,
+            tx: 2u32,
             amount: Some(Decimal::new(1, 0)),
             is_disputed: false,
         };
@@ -354,7 +393,7 @@ mod tests {
         let tx2 = Transaction {
             tx_type: Some(TxType::Withdraw),
             client: client_id,
-            tx: 1u32,
+            tx: 2u32,
             amount: Some(Decimal::new(1, 0)),
             is_disputed: false,
         };
@@ -363,11 +402,11 @@ mod tests {
         let maybe_account = acc_man.accounts.get(&client_id);
         assert!(maybe_account.is_some());
         let account: &ClientAccount = maybe_account.unwrap();
-        assert_eq!(account.available, Decimal::new(-1, 0));
+        assert_eq!(account.available, Decimal::new(8, 0));
         assert_eq!(account.client, client_id);
         assert_eq!(account.held, Decimal::new(0, 0));
         assert_eq!(account.locked, false);
-        assert_eq!(account.total, Decimal::new(-1, 0));
+        assert_eq!(account.total, Decimal::new(8, 0));
     }
 
     #[test]
@@ -479,10 +518,18 @@ mod tests {
     fn dispute_a_withdraw_tx() {
         let mut acc_man = AccountManager::default();
         let client_id = 1u16;
+        let tx = Transaction {
+            tx_type: Some(TxType::Deposit),
+            client: client_id,
+            tx: 1u32,
+            amount: Some(Decimal::new(10, 0)),
+            is_disputed: false,
+        };
+        assert!(acc_man.process_tx(&tx).is_ok());
         let tx1 = Transaction {
             tx_type: Some(TxType::Withdraw),
             client: client_id,
-            tx: 1u32,
+            tx: 2u32,
             amount: Some(Decimal::new(9, 0)),
             is_disputed: false,
         };
@@ -490,7 +537,7 @@ mod tests {
         let tx2 = Transaction {
             tx_type: Some(TxType::Dispute),
             client: client_id,
-            tx: 1u32,
+            tx: 2u32,
             amount: None,
             is_disputed: false,
         };
@@ -499,11 +546,11 @@ mod tests {
         let maybe_account = acc_man.accounts.get(&client_id);
         assert!(maybe_account.is_some());
         let account: &ClientAccount = maybe_account.unwrap();
-        assert_eq!(account.available, Decimal::new(-9, 0));
+        assert_eq!(account.available, Decimal::new(1, 0));
         assert_eq!(account.client, client_id);
         assert_eq!(account.held, Decimal::new(0, 0));
         assert_eq!(account.locked, false);
-        assert_eq!(account.total, Decimal::new(-9, 0));
+        assert_eq!(account.total, Decimal::new(1, 0));
         match acc_man.transactions.entry(1u32) {
             Occupied(e) => assert_eq!(e.get().is_disputed, false),
             Vacant(_e) => assert!(false),
