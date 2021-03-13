@@ -3,13 +3,13 @@ use crate::tx_stream_reader::TxStreamReader;
 use crate::Transaction;
 use crate::DECIMAL_PRECISION;
 
-pub struct TxProcessor {
-    tx_stream: TxStreamReader,
+pub struct TxProcessor<T> where T: std::io::Read {
+    tx_stream: TxStreamReader<T>,
     acc_man: AccountManager,
 }
 
-impl TxProcessor {
-    pub fn new(tx_stream: TxStreamReader, acc_man: AccountManager) -> Self {
+impl<T: std::io::Read> TxProcessor<T> {
+    pub fn new(tx_stream: TxStreamReader<T>, acc_man: AccountManager) -> Self {
         TxProcessor { tx_stream, acc_man }
     }
 

@@ -1,19 +1,20 @@
 use std::error::Error;
-use std::fs::File;
 use std::io::BufReader;
 
-pub struct TxStreamReader {
-    pub stream: csv::Reader<BufReader<File>>,
+pub struct TxStreamReader<T> {
+    pub stream: csv::Reader<BufReader<T>>,
 }
 
-impl TxStreamReader {
-    pub fn new_from_csv(csv_path: String) -> Result<Self, Box<dyn Error>> {
-        let file = File::open(csv_path)?;
-        let buffered_file_reader = BufReader::new(file);
-        let tsr: csv::Reader<BufReader<File>> = TxStreamReader::csv_reader(buffered_file_reader);
+impl<T> TxStreamReader<T>
+where
+    T: std::io::Read,
+{
+    pub fn new(reader: T) -> Result<Self, Box<dyn Error>> {
+        let buffered_reader = BufReader::new(reader);
+        let tsr: csv::Reader<BufReader<T>> = TxStreamReader::csv_reader(buffered_reader);
         Ok(TxStreamReader { stream: tsr })
     }
-    fn csv_reader(reader: BufReader<File>) -> csv::Reader<BufReader<File>> {
+    fn csv_reader(reader: T) -> csv::Reader<T> {
         let csv_reader = csv::ReaderBuilder::new()
             .trim(csv::Trim::All)
             .has_headers(true)
