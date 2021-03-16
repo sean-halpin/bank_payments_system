@@ -85,3 +85,22 @@ client,available,held,total,locked
 4,2.3422,0.0000,2.3422,true
 3,21.5578,0,21.5578,false
 ```
+
+## Processing in parallel
+
+- FIFO Queue per account
+  - order matters per account
+- Concurrent storage structure 
+  - Hashmap with RwLock
+    - Entries with Mutex
+- Threadpool 
+  - mpsc multi producer single consumer channel
+  - pass results back to main thread
+
+- Scaling the service itself
+  - Sharded message delivery
+    - Kafka
+    - Rabbit hash exchange
+  - Atomic Transactional DB
+    - NoSQL, no schema, eventually consistend
+    - Reltational DB, schema migrations, atomic transactions

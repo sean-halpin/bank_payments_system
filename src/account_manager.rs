@@ -8,10 +8,16 @@ use std::collections::HashMap;
 use std::error::Error;
 use std::fmt;
 use std::io;
+use std::sync::mpsc::channel;
+use std::sync::Arc;
+use std::sync::Mutex;
+use std::sync::RwLock;
+use threadpool::ThreadPool;
 
 pub struct AccountManager {
-    pub accounts: HashMap<u16, ClientAccount>,
-    transactions: HashMap<u32, Transaction>,
+    pub accounts: Arc<RwLock<HashMap<u16, Mutex<ClientAccount>>>>,
+    transactions: Arc<RwLock<HashMap<u32, Mutex<Transaction>>>>,
+    pool: ThreadPool,
 }
 
 impl std::fmt::Display for AccountManager {
@@ -21,25 +27,32 @@ impl std::fmt::Display for AccountManager {
     }
 }
 
-impl Default for AccountManager {
-    fn default() -> Self {
+impl AccountManager {
+    pub fn new(
+        accounts: Arc<RwLock<HashMap<u16, Mutex<ClientAccount>>>>,
+        transactions: Arc<RwLock<HashMap<u32, Mutex<Transaction>>>>,
+    ) -> Self {
+        let pool = ThreadPool::new(2);
         AccountManager {
-            accounts: HashMap::new(),
-            transactions: HashMap::new(),
+            accounts,
+            transactions,
+            pool,
         }
     }
-}
 
-impl AccountManager {
     fn to_csv(&self) -> Result<(), Box<dyn Error>> {
         let mut wtr = csv::Writer::from_writer(io::stdout());
-        for acc in self.accounts.values() {
-            wtr.serialize(acc).unwrap();
+        for acc in self.accounts.read().expect("RwLock poisoned").values() {
+            wtr.serialize(acc)?;
         }
         wtr.flush()?;
         Ok(())
     }
-    fn process_deposit(&mut self, tx: &Transaction) -> Result<(), Box<dyn Error>> {
+    fn process_deposit(
+        accounts: Arc<RwLock<HashMap<u16, Mutex<ClientAccount>>>>,
+        transactions: Arc<RwLock<HashMap<u32, Mutex<Transaction>>>>,
+        tx: &Transaction,
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
         let amount = match tx.amount {
             Some(a) => {
                 if a.lt(&Decimal::new(0, 0)) {
@@ -50,15 +63,15 @@ impl AccountManager {
             }
             None => return Err("Amount Required".into()),
         };
-        match self.transactions.entry(tx.tx) {
+        match transactions.write().expect("Unexpected Lock").entry(tx.tx) {
             Occupied(_) => return Err("Duplicate Transaction".into()),
             Vacant(e) => {
-                e.insert(tx.clone());
+                e.insert(Mutex::new(tx.clone()));
             }
         }
-        match self.accounts.entry(tx.client) {
+        match accounts.write().expect("Unexpected Lock").entry(tx.client) {
             Occupied(mut e) => {
-                let account = e.get_mut();
+                let mut account = e.get_mut().get_mut().unwrap();
                 if account.locked {
                     return Err("Account Locked due to Chargeback".into());
                 }
@@ -73,13 +86,17 @@ impl AccountManager {
                     locked: false,
                     total: amount,
                 };
-                e.insert(new_account);
+                e.insert(Mutex::new(new_account));
             }
         }
         Ok(())
     }
 
-    fn process_withdraw(&mut self, tx: &Transaction) -> Result<(), Box<dyn Error>> {
+    fn process_withdraw(
+        accounts: Arc<RwLock<HashMap<u16, Mutex<ClientAccount>>>>,
+        transactions: Arc<RwLock<HashMap<u32, Mutex<Transaction>>>>,
+        tx: &Transaction,
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
         let amount = match tx.amount {
             Some(a) => {
                 if a.lt(&Decimal::new(0, 0)) {
@@ -90,15 +107,15 @@ impl AccountManager {
             }
             None => return Err("Amount Required".into()),
         };
-        match self.transactions.entry(tx.tx) {
+        match transactions.write().expect("Unexpected Lock").entry(tx.tx) {
             Occupied(_) => return Err("Duplicate Transaction".into()),
             Vacant(e) => {
-                e.insert(tx.clone());
+                e.insert(Mutex::new(tx.clone()));
             }
         }
-        match self.accounts.entry(tx.client) {
+        match accounts.write().expect("Unexpected Lock").entry(tx.client) {
             Occupied(mut e) => {
-                let account = e.get_mut();
+                let mut account = e.get_mut().get_mut().unwrap();
                 if account.locked {
                     return Err("Account Locked due to Chargeback".into());
                 }
@@ -113,10 +130,15 @@ impl AccountManager {
         Ok(())
     }
 
-    fn process_dispute(&mut self, tx: &Transaction) -> Result<(), Box<dyn Error>> {
-        let mut _account = match self.accounts.entry(tx.client) {
+    fn process_dispute(
+        accounts: Arc<RwLock<HashMap<u16, Mutex<ClientAccount>>>>,
+        transactions: Arc<RwLock<HashMap<u32, Mutex<Transaction>>>>,
+        tx: &Transaction,
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+        let mut accounts = accounts.write().expect("Unexpected Lock");
+        let mut _account = match accounts.entry(tx.client) {
             Occupied(entry) => {
-                if entry.get().locked {
+                if entry.get().lock().unwrap().locked {
                     return Err("Account Locked due to Chargeback".into());
                 }
                 entry
@@ -125,10 +147,10 @@ impl AccountManager {
                 return Err("No Associated Client Account Found".into());
             }
         };
-        match self.transactions.entry(tx.tx) {
+        match transactions.write().expect("Unexpected Lock").entry(tx.tx) {
             Occupied(mut e) => {
-                let disputed_tx = e.get_mut();
-                let account = _account.get_mut();
+                let mut disputed_tx = e.get_mut().get_mut().unwrap();
+                let account = _account.get_mut().get_mut().unwrap();
                 if disputed_tx.tx_type.as_ref().unwrap() != &TxType::Deposit {
                     return Err("Only a Deposit can be disputed".into());
                 }
@@ -147,10 +169,15 @@ impl AccountManager {
         Ok(())
     }
 
-    fn process_resolve(&mut self, tx: &Transaction) -> Result<(), Box<dyn Error>> {
-        let mut _account = match self.accounts.entry(tx.client) {
+    fn process_resolve(
+        accounts: Arc<RwLock<HashMap<u16, Mutex<ClientAccount>>>>,
+        transactions: Arc<RwLock<HashMap<u32, Mutex<Transaction>>>>,
+        tx: &Transaction,
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+        let mut accounts = accounts.write().expect("Unexpected Lock");
+        let mut _account = match accounts.entry(tx.client) {
             Occupied(entry) => {
-                if entry.get().locked {
+                if entry.get().lock().unwrap().locked {
                     return Err("Account Locked due to Chargeback".into());
                 }
                 entry
@@ -159,13 +186,13 @@ impl AccountManager {
                 return Err("No Associated Client Account Found".into());
             }
         };
-        match self.transactions.entry(tx.tx) {
+        match transactions.write().expect("Unexpected Lock").entry(tx.tx) {
             Occupied(mut e) => {
-                let disputed_tx = e.get_mut();
+                let mut disputed_tx = e.get_mut().get_mut().unwrap();
                 if !disputed_tx.is_disputed {
                     return Err("Transaction is not disputed".into());
                 }
-                let account = _account.get_mut();
+                let account = _account.get_mut().get_mut().unwrap();
                 let amount = match disputed_tx.amount {
                     Some(a) => a,
                     None => return Err("Amount Required".into()),
@@ -181,10 +208,15 @@ impl AccountManager {
         Ok(())
     }
 
-    fn process_chargeback(&mut self, tx: &Transaction) -> Result<(), Box<dyn Error>> {
-        let mut _account = match self.accounts.entry(tx.client) {
+    fn process_chargeback(
+        accounts: Arc<RwLock<HashMap<u16, Mutex<ClientAccount>>>>,
+        transactions: Arc<RwLock<HashMap<u32, Mutex<Transaction>>>>,
+        tx: &Transaction,
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+        let mut accounts = accounts.write().expect("Unexpected Lock");
+        let mut _account = match accounts.entry(tx.client) {
             Occupied(entry) => {
-                if entry.get().locked {
+                if entry.get().lock().unwrap().locked {
                     return Err("Account Locked due to Chargeback".into());
                 }
                 entry
@@ -193,13 +225,13 @@ impl AccountManager {
                 return Err("No Associated Client Account Found".into());
             }
         };
-        match self.transactions.entry(tx.tx) {
+        match transactions.write().expect("Unexpected Lock").entry(tx.tx) {
             Occupied(mut e) => {
-                let disputed_tx = e.get_mut();
+                let disputed_tx = e.get_mut().get_mut().unwrap();
                 if !disputed_tx.is_disputed {
                     return Err("Transaction is not disputed".into());
                 }
-                let account = _account.get_mut();
+                let mut account = _account.get_mut().get_mut().unwrap();
                 let amount = match disputed_tx.amount {
                     Some(a) => a,
                     None => return Err("Amount Required".into()),
@@ -215,18 +247,37 @@ impl AccountManager {
         Ok(())
     }
 
-    pub fn process_tx(&mut self, tx: &Transaction) -> Result<(), Box<dyn Error>> {
-        match &tx.tx_type {
-            Some(t) => match t {
-                TxType::Deposit => self.process_deposit(tx)?,
-                TxType::Withdraw => self.process_withdraw(tx)?,
-                TxType::Dispute => self.process_dispute(tx)?,
-                TxType::Resolve => self.process_resolve(tx)?,
-                TxType::Chargeback => self.process_chargeback(tx)?,
-            },
-            None => return Err("No Tx Type provided".into()),
-        };
-        Ok(())
+    pub fn process_tx(&mut self, tx: Transaction) -> Result<(), Box<dyn Error>> {
+        let accs = self.accounts.clone();
+        let txs = self.transactions.clone();
+        let (txc, rxc) = channel();
+        self.pool.execute(move || {
+            let result = match &tx.tx_type {
+                Some(t) => match t {
+                    TxType::Deposit => txc.send(Self::process_deposit(accs, txs, &tx)),
+                    TxType::Withdraw => txc.send(Self::process_withdraw(accs, txs, &tx)),
+                    TxType::Dispute => txc.send(Self::process_dispute(accs, txs, &tx)),
+                    TxType::Resolve => txc.send(Self::process_resolve(accs, txs, &tx)),
+                    TxType::Chargeback => txc.send(Self::process_chargeback(accs, txs, &tx)),
+                },
+                None => txc.send(Err("No Tx Type provided".into())),
+            };
+            if let Ok(_r) = result {
+                println!("Tx Processed");
+            } else {
+                eprintln!("Tx Not Processed");
+            }
+        });
+        if let Ok(thread_result) = rxc.recv() {
+            println!("Tx Thread Finished");
+            if let Err(tx_process_result) = thread_result {
+                return Err(tx_process_result);
+            }
+            Ok(())
+        } else {
+            eprintln!("Tx Thread Failed");
+            Err("Error".into())
+        }
     }
 }
 
@@ -236,7 +287,10 @@ mod tests {
 
     #[test]
     fn deposit_new_account() {
-        let mut acc_man = AccountManager::default();
+        let mut acc_man = AccountManager::new(
+            Arc::new(RwLock::new(HashMap::new())),
+            Arc::new(RwLock::new(HashMap::new())),
+        );
         let client_id = 1u16;
         let tx = Transaction {
             tx_type: Some(TxType::Deposit),
@@ -245,11 +299,12 @@ mod tests {
             amount: Some(Decimal::new(1, 0)),
             is_disputed: false,
         };
-        let result = acc_man.process_tx(&tx);
+        let result = acc_man.process_tx(tx);
         assert!(result.is_ok());
-        let maybe_account = acc_man.accounts.get(&client_id);
+        let acc_man_lock = acc_man.accounts.write().expect("Unexpected Lock");
+        let maybe_account = acc_man_lock.get(&client_id);
         assert!(maybe_account.is_some());
-        let account: &ClientAccount = maybe_account.unwrap();
+        let account: &ClientAccount = &maybe_account.unwrap().lock().unwrap();
         assert_eq!(account.available, Decimal::new(1, 0));
         assert_eq!(account.client, client_id);
         assert_eq!(account.held, Decimal::new(0, 0));
@@ -259,7 +314,10 @@ mod tests {
 
     #[test]
     fn deposit_negative_amount_account() {
-        let mut acc_man = AccountManager::default();
+        let mut acc_man = AccountManager::new(
+            Arc::new(RwLock::new(HashMap::new())),
+            Arc::new(RwLock::new(HashMap::new())),
+        );
         let client_id = 1u16;
         let tx = Transaction {
             tx_type: Some(TxType::Deposit),
@@ -268,15 +326,19 @@ mod tests {
             amount: Some(Decimal::new(-1, 0)),
             is_disputed: false,
         };
-        let result = acc_man.process_tx(&tx);
+        let result = acc_man.process_tx(tx);
         assert!(result.is_err());
-        let maybe_account = acc_man.accounts.get(&client_id);
+        let acc_man_lock = acc_man.accounts.write().expect("Unexpected Lock");
+        let maybe_account = acc_man_lock.get(&client_id);
         assert!(maybe_account.is_none());
     }
 
     #[test]
     fn withdraw_negative_amount_account() {
-        let mut acc_man = AccountManager::default();
+        let mut acc_man = AccountManager::new(
+            Arc::new(RwLock::new(HashMap::new())),
+            Arc::new(RwLock::new(HashMap::new())),
+        );
         let client_id = 1u16;
         let tx = Transaction {
             tx_type: Some(TxType::Withdraw),
@@ -285,15 +347,19 @@ mod tests {
             amount: Some(Decimal::new(-1, 0)),
             is_disputed: false,
         };
-        let result = acc_man.process_tx(&tx);
+        let result = acc_man.process_tx(tx);
         assert!(result.is_err());
-        let maybe_account = acc_man.accounts.get(&client_id);
+        let acc_man_lock = acc_man.accounts.write().expect("Unexpected Lock");
+        let maybe_account = acc_man_lock.get(&client_id);
         assert!(maybe_account.is_none());
     }
 
     #[test]
     fn deposit_duplicate_tx() {
-        let mut acc_man = AccountManager::default();
+        let mut acc_man = AccountManager::new(
+            Arc::new(RwLock::new(HashMap::new())),
+            Arc::new(RwLock::new(HashMap::new())),
+        );
         let client_id = 1u16;
         let tx1 = Transaction {
             tx_type: Some(TxType::Deposit),
@@ -302,7 +368,7 @@ mod tests {
             amount: Some(Decimal::new(1, 0)),
             is_disputed: false,
         };
-        assert!(acc_man.process_tx(&tx1).is_ok());
+        assert!(acc_man.process_tx(tx1).is_ok());
         let tx2 = Transaction {
             tx_type: Some(TxType::Deposit),
             client: client_id,
@@ -310,11 +376,12 @@ mod tests {
             amount: Some(Decimal::new(1, 0)),
             is_disputed: false,
         };
-        assert!(acc_man.process_tx(&tx2).is_err());
+        assert!(acc_man.process_tx(tx2).is_err());
 
-        let maybe_account = acc_man.accounts.get(&client_id);
+        let acc_man_lock = acc_man.accounts.write().expect("Unexpected Lock");
+        let maybe_account = acc_man_lock.get(&client_id);
         assert!(maybe_account.is_some());
-        let account: &ClientAccount = maybe_account.unwrap();
+        let account: &ClientAccount = &maybe_account.unwrap().lock().unwrap();
         assert_eq!(account.available, Decimal::new(1, 0));
         assert_eq!(account.client, client_id);
         assert_eq!(account.held, Decimal::new(0, 0));
@@ -324,7 +391,10 @@ mod tests {
 
     #[test]
     fn deposit_multiple_tx() {
-        let mut acc_man = AccountManager::default();
+        let mut acc_man = AccountManager::new(
+            Arc::new(RwLock::new(HashMap::new())),
+            Arc::new(RwLock::new(HashMap::new())),
+        );
         let client_id = 1u16;
         let tx1 = Transaction {
             tx_type: Some(TxType::Deposit),
@@ -333,7 +403,7 @@ mod tests {
             amount: Some(Decimal::new(1, 0)),
             is_disputed: false,
         };
-        assert!(acc_man.process_tx(&tx1).is_ok());
+        assert!(acc_man.process_tx(tx1).is_ok());
         let tx2 = Transaction {
             tx_type: Some(TxType::Deposit),
             client: client_id,
@@ -341,11 +411,12 @@ mod tests {
             amount: Some(Decimal::new(1, 0)),
             is_disputed: false,
         };
-        assert!(acc_man.process_tx(&tx2).is_ok());
+        assert!(acc_man.process_tx(tx2).is_ok());
 
-        let maybe_account = acc_man.accounts.get(&client_id);
+        let acc_man_lock = acc_man.accounts.write().expect("Unexpected Lock");
+        let maybe_account = acc_man_lock.get(&client_id);
         assert!(maybe_account.is_some());
-        let account: &ClientAccount = maybe_account.unwrap();
+        let account: &ClientAccount = &maybe_account.unwrap().lock().unwrap();
         assert_eq!(account.available, Decimal::new(2, 0));
         assert_eq!(account.client, client_id);
         assert_eq!(account.held, Decimal::new(0, 0));
@@ -355,7 +426,10 @@ mod tests {
 
     #[test]
     fn withdraw_new_account() {
-        let mut acc_man = AccountManager::default();
+        let mut acc_man = AccountManager::new(
+            Arc::new(RwLock::new(HashMap::new())),
+            Arc::new(RwLock::new(HashMap::new())),
+        );
         let client_id = 1u16;
         let tx = Transaction {
             tx_type: Some(TxType::Withdraw),
@@ -364,15 +438,19 @@ mod tests {
             amount: Some(Decimal::new(1, 0)),
             is_disputed: false,
         };
-        let result = acc_man.process_tx(&tx);
+        let result = acc_man.process_tx(tx);
         assert!(result.is_err());
-        let maybe_account = acc_man.accounts.get(&client_id);
+        let acc_man_lock = acc_man.accounts.write().expect("Unexpected Lock");
+        let maybe_account = acc_man_lock.get(&client_id);
         assert!(maybe_account.is_none());
     }
 
     #[test]
     fn withdraw_duplicate_tx() {
-        let mut acc_man = AccountManager::default();
+        let mut acc_man = AccountManager::new(
+            Arc::new(RwLock::new(HashMap::new())),
+            Arc::new(RwLock::new(HashMap::new())),
+        );
         let client_id = 1u16;
         let tx = Transaction {
             tx_type: Some(TxType::Deposit),
@@ -381,7 +459,7 @@ mod tests {
             amount: Some(Decimal::new(9, 0)),
             is_disputed: false,
         };
-        assert!(acc_man.process_tx(&tx).is_ok());
+        assert!(acc_man.process_tx(tx).is_ok());
         let tx1 = Transaction {
             tx_type: Some(TxType::Withdraw),
             client: client_id,
@@ -389,7 +467,7 @@ mod tests {
             amount: Some(Decimal::new(1, 0)),
             is_disputed: false,
         };
-        assert!(acc_man.process_tx(&tx1).is_ok());
+        assert!(acc_man.process_tx(tx1).is_ok());
         let tx2 = Transaction {
             tx_type: Some(TxType::Withdraw),
             client: client_id,
@@ -397,11 +475,12 @@ mod tests {
             amount: Some(Decimal::new(1, 0)),
             is_disputed: false,
         };
-        assert!(acc_man.process_tx(&tx2).is_err());
+        assert!(acc_man.process_tx(tx2).is_err());
 
-        let maybe_account = acc_man.accounts.get(&client_id);
+        let acc_man_lock = acc_man.accounts.write().expect("Unexpected Lock");
+        let maybe_account = acc_man_lock.get(&client_id);
         assert!(maybe_account.is_some());
-        let account: &ClientAccount = maybe_account.unwrap();
+        let account: &ClientAccount = &maybe_account.unwrap().lock().unwrap();
         assert_eq!(account.available, Decimal::new(8, 0));
         assert_eq!(account.client, client_id);
         assert_eq!(account.held, Decimal::new(0, 0));
@@ -411,7 +490,10 @@ mod tests {
 
     #[test]
     fn withdraw_multiple_tx() {
-        let mut acc_man = AccountManager::default();
+        let mut acc_man = AccountManager::new(
+            Arc::new(RwLock::new(HashMap::new())),
+            Arc::new(RwLock::new(HashMap::new())),
+        );
         let client_id = 1u16;
         let tx1 = Transaction {
             tx_type: Some(TxType::Deposit),
@@ -420,7 +502,7 @@ mod tests {
             amount: Some(Decimal::new(10, 0)),
             is_disputed: false,
         };
-        assert!(acc_man.process_tx(&tx1).is_ok());
+        assert!(acc_man.process_tx(tx1).is_ok());
         let tx2 = Transaction {
             tx_type: Some(TxType::Withdraw),
             client: client_id,
@@ -428,7 +510,7 @@ mod tests {
             amount: Some(Decimal::new(1, 0)),
             is_disputed: false,
         };
-        assert!(acc_man.process_tx(&tx2).is_ok());
+        assert!(acc_man.process_tx(tx2).is_ok());
         let tx3 = Transaction {
             tx_type: Some(TxType::Withdraw),
             client: client_id,
@@ -436,11 +518,12 @@ mod tests {
             amount: Some(Decimal::new(1, 0)),
             is_disputed: false,
         };
-        assert!(acc_man.process_tx(&tx3).is_ok());
+        assert!(acc_man.process_tx(tx3).is_ok());
 
-        let maybe_account = acc_man.accounts.get(&client_id);
+        let acc_man_lock = acc_man.accounts.write().expect("Unexpected Lock");
+        let maybe_account = acc_man_lock.get(&client_id);
         assert!(maybe_account.is_some());
-        let account: &ClientAccount = maybe_account.unwrap();
+        let account: &ClientAccount = &maybe_account.unwrap().lock().unwrap();
         assert_eq!(account.available, Decimal::new(8, 0));
         assert_eq!(account.client, client_id);
         assert_eq!(account.held, Decimal::new(0, 0));
@@ -450,7 +533,10 @@ mod tests {
 
     #[test]
     fn withdraw_insufficient_funds_tx() {
-        let mut acc_man = AccountManager::default();
+        let mut acc_man = AccountManager::new(
+            Arc::new(RwLock::new(HashMap::new())),
+            Arc::new(RwLock::new(HashMap::new())),
+        );
         let client_id = 1u16;
         let tx1 = Transaction {
             tx_type: Some(TxType::Deposit),
@@ -459,7 +545,7 @@ mod tests {
             amount: Some(Decimal::new(10, 0)),
             is_disputed: false,
         };
-        assert!(acc_man.process_tx(&tx1).is_ok());
+        assert!(acc_man.process_tx(tx1).is_ok());
         let tx2 = Transaction {
             tx_type: Some(TxType::Withdraw),
             client: client_id,
@@ -467,11 +553,12 @@ mod tests {
             amount: Some(Decimal::new(11, 0)),
             is_disputed: false,
         };
-        assert!(acc_man.process_tx(&tx2).is_err());
+        assert!(acc_man.process_tx(tx2).is_err());
 
-        let maybe_account = acc_man.accounts.get(&client_id);
+        let acc_man_lock = acc_man.accounts.write().expect("Unexpected Lock");
+        let maybe_account = acc_man_lock.get(&client_id);
         assert!(maybe_account.is_some());
-        let account: &ClientAccount = maybe_account.unwrap();
+        let account: &ClientAccount = &maybe_account.unwrap().lock().unwrap();
         assert_eq!(account.available, Decimal::new(10, 0));
         assert_eq!(account.client, client_id);
         assert_eq!(account.held, Decimal::new(0, 0));
@@ -481,7 +568,10 @@ mod tests {
 
     #[test]
     fn dispute_a_deposit_tx() {
-        let mut acc_man = AccountManager::default();
+        let mut acc_man = AccountManager::new(
+            Arc::new(RwLock::new(HashMap::new())),
+            Arc::new(RwLock::new(HashMap::new())),
+        );
         let client_id = 1u16;
         let tx1 = Transaction {
             tx_type: Some(TxType::Deposit),
@@ -490,7 +580,7 @@ mod tests {
             amount: Some(Decimal::new(5, 0)),
             is_disputed: false,
         };
-        assert!(acc_man.process_tx(&tx1).is_ok());
+        assert!(acc_man.process_tx(tx1).is_ok());
         let tx2 = Transaction {
             tx_type: Some(TxType::Dispute),
             client: client_id,
@@ -498,25 +588,34 @@ mod tests {
             amount: None,
             is_disputed: false,
         };
-        assert!(acc_man.process_tx(&tx2).is_ok());
+        assert!(acc_man.process_tx(tx2).is_ok());
 
-        let maybe_account = acc_man.accounts.get(&client_id);
+        let acc_man_lock = acc_man.accounts.write().expect("Unexpected Lock");
+        let maybe_account = acc_man_lock.get(&client_id);
         assert!(maybe_account.is_some());
-        let account: &ClientAccount = maybe_account.unwrap();
+        let account: &ClientAccount = &maybe_account.unwrap().lock().unwrap();
         assert_eq!(account.available, Decimal::new(0, 0));
         assert_eq!(account.client, client_id);
         assert_eq!(account.held, Decimal::new(5, 0));
         assert_eq!(account.locked, false);
         assert_eq!(account.total, Decimal::new(5, 0));
-        match acc_man.transactions.entry(1u32) {
-            Occupied(e) => assert_eq!(e.get().is_disputed, true),
+        match acc_man
+            .transactions
+            .write()
+            .expect("Unexpected Lock")
+            .entry(1u32)
+        {
+            Occupied(e) => assert_eq!(e.get().lock().unwrap().is_disputed, true),
             Vacant(_e) => assert!(false),
         };
     }
 
     #[test]
     fn dispute_a_withdraw_tx() {
-        let mut acc_man = AccountManager::default();
+        let mut acc_man = AccountManager::new(
+            Arc::new(RwLock::new(HashMap::new())),
+            Arc::new(RwLock::new(HashMap::new())),
+        );
         let client_id = 1u16;
         let tx = Transaction {
             tx_type: Some(TxType::Deposit),
@@ -525,7 +624,7 @@ mod tests {
             amount: Some(Decimal::new(10, 0)),
             is_disputed: false,
         };
-        assert!(acc_man.process_tx(&tx).is_ok());
+        assert!(acc_man.process_tx(tx).is_ok());
         let tx1 = Transaction {
             tx_type: Some(TxType::Withdraw),
             client: client_id,
@@ -533,7 +632,7 @@ mod tests {
             amount: Some(Decimal::new(9, 0)),
             is_disputed: false,
         };
-        assert!(acc_man.process_tx(&tx1).is_ok());
+        assert!(acc_man.process_tx(tx1).is_ok());
         let tx2 = Transaction {
             tx_type: Some(TxType::Dispute),
             client: client_id,
@@ -541,25 +640,34 @@ mod tests {
             amount: None,
             is_disputed: false,
         };
-        assert!(acc_man.process_tx(&tx2).is_err());
+        assert!(acc_man.process_tx(tx2).is_err());
 
-        let maybe_account = acc_man.accounts.get(&client_id);
+        let acc_man_lock = acc_man.accounts.write().expect("Unexpected Lock");
+        let maybe_account = acc_man_lock.get(&client_id);
         assert!(maybe_account.is_some());
-        let account: &ClientAccount = maybe_account.unwrap();
+        let account: &ClientAccount = &maybe_account.unwrap().lock().unwrap();
         assert_eq!(account.available, Decimal::new(1, 0));
         assert_eq!(account.client, client_id);
         assert_eq!(account.held, Decimal::new(0, 0));
         assert_eq!(account.locked, false);
         assert_eq!(account.total, Decimal::new(1, 0));
-        match acc_man.transactions.entry(1u32) {
-            Occupied(e) => assert_eq!(e.get().is_disputed, false),
+        match acc_man
+            .transactions
+            .write()
+            .expect("Unexpected Lock")
+            .entry(1u32)
+        {
+            Occupied(e) => assert_eq!(e.get().lock().unwrap().is_disputed, false),
             Vacant(_e) => assert!(false),
         };
     }
 
     #[test]
     fn resolve_a_dispute_tx() {
-        let mut acc_man = AccountManager::default();
+        let mut acc_man = AccountManager::new(
+            Arc::new(RwLock::new(HashMap::new())),
+            Arc::new(RwLock::new(HashMap::new())),
+        );
         let client_id = 1u16;
         let tx1 = Transaction {
             tx_type: Some(TxType::Deposit),
@@ -568,7 +676,7 @@ mod tests {
             amount: Some(Decimal::new(9, 0)),
             is_disputed: false,
         };
-        assert!(acc_man.process_tx(&tx1).is_ok());
+        assert!(acc_man.process_tx(tx1).is_ok());
         let tx2 = Transaction {
             tx_type: Some(TxType::Dispute),
             client: client_id,
@@ -576,7 +684,7 @@ mod tests {
             amount: None,
             is_disputed: false,
         };
-        assert!(acc_man.process_tx(&tx2).is_ok());
+        assert!(acc_man.process_tx(tx2).is_ok());
         let tx3 = Transaction {
             tx_type: Some(TxType::Resolve),
             client: client_id,
@@ -584,24 +692,33 @@ mod tests {
             amount: None,
             is_disputed: false,
         };
-        assert!(acc_man.process_tx(&tx3).is_ok());
-        let maybe_account = acc_man.accounts.get(&client_id);
+        assert!(acc_man.process_tx(tx3).is_ok());
+        let acc_man_lock = acc_man.accounts.write().expect("Unexpected Lock");
+        let maybe_account = acc_man_lock.get(&client_id);
         assert!(maybe_account.is_some());
-        let account: &ClientAccount = maybe_account.unwrap();
+        let account: &ClientAccount = &maybe_account.unwrap().lock().unwrap();
         assert_eq!(account.available, Decimal::new(9, 0));
         assert_eq!(account.client, client_id);
         assert_eq!(account.held, Decimal::new(0, 0));
         assert_eq!(account.locked, false);
         assert_eq!(account.total, Decimal::new(9, 0));
-        match acc_man.transactions.entry(1u32) {
-            Occupied(e) => assert_eq!(e.get().is_disputed, false),
+        match acc_man
+            .transactions
+            .write()
+            .expect("Unexpected Lock")
+            .entry(1u32)
+        {
+            Occupied(e) => assert_eq!(e.get().lock().unwrap().is_disputed, false),
             Vacant(_e) => assert!(false),
         };
     }
 
     #[test]
     fn resolve_a_non_dispute_tx() {
-        let mut acc_man = AccountManager::default();
+        let mut acc_man = AccountManager::new(
+            Arc::new(RwLock::new(HashMap::new())),
+            Arc::new(RwLock::new(HashMap::new())),
+        );
         let client_id = 1u16;
         let tx1 = Transaction {
             tx_type: Some(TxType::Deposit),
@@ -610,7 +727,7 @@ mod tests {
             amount: Some(Decimal::new(9, 0)),
             is_disputed: false,
         };
-        assert!(acc_man.process_tx(&tx1).is_ok());
+        assert!(acc_man.process_tx(tx1).is_ok());
         let tx3 = Transaction {
             tx_type: Some(TxType::Resolve),
             client: client_id,
@@ -618,12 +735,15 @@ mod tests {
             amount: None,
             is_disputed: false,
         };
-        assert!(acc_man.process_tx(&tx3).is_err());
+        assert!(acc_man.process_tx(tx3).is_err());
     }
 
     #[test]
     fn chargeback_a_dispute_tx() {
-        let mut acc_man = AccountManager::default();
+        let mut acc_man = AccountManager::new(
+            Arc::new(RwLock::new(HashMap::new())),
+            Arc::new(RwLock::new(HashMap::new())),
+        );
         let client_id = 1u16;
         let tx1 = Transaction {
             tx_type: Some(TxType::Deposit),
@@ -632,7 +752,7 @@ mod tests {
             amount: Some(Decimal::new(9, 0)),
             is_disputed: false,
         };
-        assert!(acc_man.process_tx(&tx1).is_ok());
+        assert!(acc_man.process_tx(tx1).is_ok());
         let tx2 = Transaction {
             tx_type: Some(TxType::Dispute),
             client: client_id,
@@ -640,7 +760,7 @@ mod tests {
             amount: None,
             is_disputed: false,
         };
-        assert!(acc_man.process_tx(&tx2).is_ok());
+        assert!(acc_man.process_tx(tx2).is_ok());
         let tx3 = Transaction {
             tx_type: Some(TxType::Chargeback),
             client: client_id,
@@ -648,24 +768,33 @@ mod tests {
             amount: None,
             is_disputed: false,
         };
-        assert!(acc_man.process_tx(&tx3).is_ok());
-        let maybe_account = acc_man.accounts.get(&client_id);
+        assert!(acc_man.process_tx(tx3).is_ok());
+        let acc_man_lock = acc_man.accounts.write().expect("Unexpected Lock");
+        let maybe_account = acc_man_lock.get(&client_id);
         assert!(maybe_account.is_some());
-        let account: &ClientAccount = maybe_account.unwrap();
+        let account: &ClientAccount = &maybe_account.unwrap().lock().unwrap();
         assert_eq!(account.available, Decimal::new(0, 0));
         assert_eq!(account.client, client_id);
         assert_eq!(account.held, Decimal::new(0, 0));
         assert_eq!(account.locked, true);
         assert_eq!(account.total, Decimal::new(0, 0));
-        match acc_man.transactions.entry(1u32) {
-            Occupied(e) => assert_eq!(e.get().is_disputed, true),
+        match acc_man
+            .transactions
+            .write()
+            .expect("Unexpected Lock")
+            .entry(1u32)
+        {
+            Occupied(e) => assert_eq!(e.get().lock().unwrap().is_disputed, true),
             Vacant(_e) => assert!(false),
         };
     }
 
     #[test]
     fn cant_deposit_to_a_locked_account() {
-        let mut acc_man = AccountManager::default();
+        let mut acc_man = AccountManager::new(
+            Arc::new(RwLock::new(HashMap::new())),
+            Arc::new(RwLock::new(HashMap::new())),
+        );
         let client_id = 1u16;
         let tx1 = Transaction {
             tx_type: Some(TxType::Deposit),
@@ -674,7 +803,7 @@ mod tests {
             amount: Some(Decimal::new(9, 0)),
             is_disputed: false,
         };
-        assert!(acc_man.process_tx(&tx1).is_ok());
+        assert!(acc_man.process_tx(tx1).is_ok());
         let tx2 = Transaction {
             tx_type: Some(TxType::Dispute),
             client: client_id,
@@ -682,7 +811,7 @@ mod tests {
             amount: None,
             is_disputed: false,
         };
-        assert!(acc_man.process_tx(&tx2).is_ok());
+        assert!(acc_man.process_tx(tx2).is_ok());
         let tx3 = Transaction {
             tx_type: Some(TxType::Chargeback),
             client: client_id,
@@ -690,7 +819,7 @@ mod tests {
             amount: None,
             is_disputed: false,
         };
-        assert!(acc_man.process_tx(&tx3).is_ok());
+        assert!(acc_man.process_tx(tx3).is_ok());
         let tx4 = Transaction {
             tx_type: Some(TxType::Deposit),
             client: client_id,
@@ -698,24 +827,33 @@ mod tests {
             amount: Some(Decimal::new(9, 0)),
             is_disputed: false,
         };
-        assert!(acc_man.process_tx(&tx4).is_err());
-        let maybe_account = acc_man.accounts.get(&client_id);
+        assert!(acc_man.process_tx(tx4).is_err());
+        let acc_man_lock = acc_man.accounts.write().expect("Unexpected Lock");
+        let maybe_account = acc_man_lock.get(&client_id);
         assert!(maybe_account.is_some());
-        let account: &ClientAccount = maybe_account.unwrap();
+        let account: &ClientAccount = &maybe_account.unwrap().lock().unwrap();
         assert_eq!(account.available, Decimal::new(0, 0));
         assert_eq!(account.client, client_id);
         assert_eq!(account.held, Decimal::new(0, 0));
         assert_eq!(account.locked, true);
         assert_eq!(account.total, Decimal::new(0, 0));
-        match acc_man.transactions.entry(1u32) {
-            Occupied(e) => assert_eq!(e.get().is_disputed, true),
+        match acc_man
+            .transactions
+            .write()
+            .expect("Unexpected Lock")
+            .entry(1u32)
+        {
+            Occupied(e) => assert_eq!(e.get().lock().unwrap().is_disputed, true),
             Vacant(_e) => assert!(false),
         };
     }
 
     #[test]
     fn chargeback_a_non_dispute_tx() {
-        let mut acc_man = AccountManager::default();
+        let mut acc_man = AccountManager::new(
+            Arc::new(RwLock::new(HashMap::new())),
+            Arc::new(RwLock::new(HashMap::new())),
+        );
         let client_id = 1u16;
         let tx1 = Transaction {
             tx_type: Some(TxType::Deposit),
@@ -724,7 +862,7 @@ mod tests {
             amount: Some(Decimal::new(9, 0)),
             is_disputed: false,
         };
-        assert!(acc_man.process_tx(&tx1).is_ok());
+        assert!(acc_man.process_tx(tx1).is_ok());
         let tx3 = Transaction {
             tx_type: Some(TxType::Chargeback),
             client: client_id,
@@ -732,12 +870,15 @@ mod tests {
             amount: None,
             is_disputed: false,
         };
-        assert!(acc_man.process_tx(&tx3).is_err());
+        assert!(acc_man.process_tx(tx3).is_err());
     }
 
     #[test]
     fn chargeback_a_non_existent_tx() {
-        let mut acc_man = AccountManager::default();
+        let mut acc_man = AccountManager::new(
+            Arc::new(RwLock::new(HashMap::new())),
+            Arc::new(RwLock::new(HashMap::new())),
+        );
         let client_id = 1u16;
         let tx1 = Transaction {
             tx_type: Some(TxType::Deposit),
@@ -746,7 +887,7 @@ mod tests {
             amount: Some(Decimal::new(9, 0)),
             is_disputed: false,
         };
-        assert!(acc_man.process_tx(&tx1).is_ok());
+        assert!(acc_man.process_tx(tx1).is_ok());
         let tx3 = Transaction {
             tx_type: Some(TxType::Chargeback),
             client: client_id,
@@ -754,12 +895,15 @@ mod tests {
             amount: None,
             is_disputed: false,
         };
-        assert!(acc_man.process_tx(&tx3).is_err());
+        assert!(acc_man.process_tx(tx3).is_err());
     }
 
     #[test]
     fn chargeback_a_non_existent_customer() {
-        let mut acc_man = AccountManager::default();
+        let mut acc_man = AccountManager::new(
+            Arc::new(RwLock::new(HashMap::new())),
+            Arc::new(RwLock::new(HashMap::new())),
+        );
         let client_id = 1u16;
         let tx3 = Transaction {
             tx_type: Some(TxType::Chargeback),
@@ -768,12 +912,15 @@ mod tests {
             amount: None,
             is_disputed: false,
         };
-        assert!(acc_man.process_tx(&tx3).is_err());
+        assert!(acc_man.process_tx(tx3).is_err());
     }
 
     #[test]
     fn resolve_a_non_existent_tx() {
-        let mut acc_man = AccountManager::default();
+        let mut acc_man = AccountManager::new(
+            Arc::new(RwLock::new(HashMap::new())),
+            Arc::new(RwLock::new(HashMap::new())),
+        );
         let client_id = 1u16;
         let tx3 = Transaction {
             tx_type: Some(TxType::Resolve),
@@ -782,12 +929,15 @@ mod tests {
             amount: None,
             is_disputed: false,
         };
-        assert!(acc_man.process_tx(&tx3).is_err());
+        assert!(acc_man.process_tx(tx3).is_err());
     }
 
     #[test]
     fn dispute_a_non_existent_tx() {
-        let mut acc_man = AccountManager::default();
+        let mut acc_man = AccountManager::new(
+            Arc::new(RwLock::new(HashMap::new())),
+            Arc::new(RwLock::new(HashMap::new())),
+        );
         let client_id = 1u16;
         let tx3 = Transaction {
             tx_type: Some(TxType::Dispute),
@@ -796,6 +946,6 @@ mod tests {
             amount: None,
             is_disputed: false,
         };
-        assert!(acc_man.process_tx(&tx3).is_err());
+        assert!(acc_man.process_tx(tx3).is_err());
     }
 }
