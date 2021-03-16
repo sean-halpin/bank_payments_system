@@ -23,7 +23,7 @@ impl<T: std::io::Read> TxProcessor<T> {
                     if let Some(amt) = deserialized_tx.amount {
                         deserialized_tx.amount = Some(amt.round_dp(DECIMAL_PRECISION));
                     }
-                    if let Err(e) = self.acc_man.process_tx(&deserialized_tx) {
+                    if let Err(e) = self.acc_man.process_tx(deserialized_tx) {
                         eprintln!("Error processing transaction: {}", e);
                     }
                 }
